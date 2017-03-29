@@ -1,0 +1,115 @@
+<?php
+
+/**
+ * @file
+ * Tests for Field Example.
+ */
+class MicropublisherTest extends DrupalWebTestCase {
+
+  public static function getInfo() {
+    return array(
+      'name' => t('Micropublisher Test'),
+      'description' => t('Create a content type with micropublisher fields, create a node, check for correct values.'),
+      'group' => 'Micropublisher',
+    );
+  }
+
+  function setUp() {
+    // Enable the modules.
+    parent::setUp(array('field_ui', 'micropublisher'));
+  }
+
+  /**
+   * Test basic functionality of the kaltura widget field.
+   *
+   * - Creates a content type.
+   * - Adds a single-valued field_example_rgb to it.
+   * - Adds a multivalued field_example_rgb to it.
+   * - Creates a node of the new type.
+   * - Populates the single-valued field.
+   * - Populates the multivalued field with two items.
+   * - Tests the result.
+   */
+  function testMicropublisherBasic() {
+    $content_type_friendly = $this->randomName(20);
+    $content_type_machine = drupal_strtolower($this->randomName(10));
+    $title = $this->randomName(20);
+
+    // Create and login user.
+    $account = $this->drupalCreateUser(array('administer content types'));
+    $this->drupalLogin($account);
+
+    $this->drupalGet('admin/structure/types');
+
+    // Create the content type.
+    $this->clickLink(t('Add content type'));
+
+    $single_field_name_friendly = $this->randomName(20);
+    $single_field_name_machine = drupal_strtolower($this->randomName(10));
+
+    $edit = array(
+      'name' => $content_type_friendly,
+      'type' => $content_type_machine,
+    );
+    $this->drupalPost(NULL, $edit, t('Save and add fields'));
+    $this->assertText(t('The content type @name has been added.', array('@name' => $content_type_friendly)));
+
+    // Now add a singleton field.
+    $edit = array(
+      'fields[_add_new_field][label]' => $single_field_name_friendly,
+      'fields[_add_new_field][field_name]' => $single_field_name_machine,
+      'fields[_add_new_field][type]' => 'micropublisher',
+      'fields[_add_new_field][widget_type]' => 'micropublisher_link',
+    );
+    $this->drupalPost(NULL, $edit, t('Save'));
+
+    // There are no settings for this, so just press the button.
+    $this->drupalPost(NULL, array(), t('Save field settings'));
+
+    // Using all the default settings, so press the button.
+    $this->drupalPost(NULL, array(), t('Save settings'));
+    $this->assertText(t('Saved @name configuration.', array('@name' => $single_field_name_friendly)));
+
+    $this->drupalPost(NULL, array(), t('Save'));
+
+    // Somehow clicking "save" isn't enough, and we have to do a
+    // node_types_rebuild().
+    node_types_rebuild();
+    menu_rebuild();
+    $type_exists = db_query('SELECT 1 FROM {node_type} WHERE type = :type', array(':type' => $content_type_machine))->fetchField();
+    $this->assertTrue($type_exists, 'The new content type has been created in the database.');
+
+    $permission = 'create ' . $content_type_machine . ' content';
+    // Reset the permissions cache.
+    $this->checkPermissions(array($permission), TRUE);
+
+    // Now that we have a new content type, create a user that has privileges
+    // on the content type.
+    $account = $this->drupalCreateUser(array($permission));
+    $this->drupalLogin($account);
+
+    $this->drupalGet('node/add/' . $content_type_machine);
+
+
+    $edit = array(
+      'urls[field_' . $single_field_name_machine . '_und_0]' => 'http://www.flickr.com/photos/bees/2341623661'
+    );
+    $this->drupalPostAJAX(NULL, $edit, 'field_' . $single_field_name_machine . '_und_0_upload_button');
+
+//    // Add a node.
+    $edit = array(
+      'title' => $title,
+//      'field_' . $single_field_name_machine . '[und][0][sid]' => $this->randomString(),
+//      'field_' . $single_field_name_machine . '[und][0][title]' => $this->randomString(),
+//      'field_' . $single_field_name_machine . '[und][0][description]' => $this->randomString(),
+//      'field_' . $single_field_name_machine . '[und][0][image]' => $this->randomString(),
+//      'field_' . $single_field_name_machine . '[und][0][provider]' => $this->randomString(),
+//      'field_' . $single_field_name_machine . '[und][0][type]' => $this->randomString(),
+//      'field_' . $single_field_name_machine . '[und][0][html]' => $this->randomString(),
+    );
+//    // Now we can fill in the second item in the multivalue field and save.
+    $this->drupalPost(NULL, $edit, t('Save'));
+    $this->assertText(t('@content_type_friendly @title has been created', array('@content_type_friendly' => $content_type_friendly, '@title' => $title)));
+  }
+
+}

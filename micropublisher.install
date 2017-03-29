@@ -1,0 +1,179 @@
+<?php
+
+/**
+ * @file
+ * Install/Update/Uninstall functions for field_example module
+ */
+
+/**
+ * Implements hook_field_schema().
+ *
+ * This defines the actual database schema of the field, using the format
+ * used by the Schema API.
+ *
+ * The actual data we store here is just one 7-character element, even
+ * though the widget presents the three portions separately.
+ *
+ * @see hook_field_schema()
+ * @link schemaapi Schema API @endlink
+ */
+function micropublisher_field_schema($field) {
+  return array(
+    'columns' => array(
+      'sid' => array(
+        'description' => 'The {micropublisher_managed}.sid being referenced in this field.',
+        'type' => 'int',
+        'not null' => FALSE,
+        'unsigned' => TRUE,
+      ),
+      'title' => array(
+        'description' => 'Title of the shared link.',
+        'type' => 'varchar',
+        'length' => 150,
+        'not null' => FALSE,
+        'default' => '',
+      ),
+      'description' => array(
+        'description' => 'Description of the shared link.',
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE
+      ),
+      'image' => array(
+        'description' => 'Image url of the shared link.',
+        'type' => 'varchar',
+        'length' => 150,
+        'not null' => FALSE,
+        'default' => '',
+      ),
+      'provider' => array(
+        'description' => 'The service provider if there are any for this url.',
+        'type' => 'varchar',
+        'length' => 150,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'type' => array(
+        'description' => 'Type of the url content.',
+        'type' => 'varchar',
+        'length' => 150,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'html' => array(
+        'description' => 'HTML code for field to save embeded code.',
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE
+      ),
+    ),
+    'indexes' => array(
+      'sid' => array('sid'),
+    ),
+    'foreign keys' => array(
+      'sid' => array(
+        'table' => 'micropublisher_managed',
+        'columns' => array('sid' => 'sid'),
+      ),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_schema().
+ */
+function micropublisher_schema() {
+  $schema['micropublisher_managed'] = array(
+    'description' => 'Stores information for fetched urls.',
+    'fields' => array(
+      'sid' => array(
+        'description' => 'Url source ID.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'The {users}.uid of the user who is associated with the file.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'uri' => array(
+        'description' => 'The URI to access the url (either local or remote).',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'status' => array(
+        'description' => 'A field indicating the status of the file. Two status are defined in core: temporary (0) and permanent (1). Temporary files older than DRUPAL_MAXIMUM_TEMP_FILE_AGE will be removed during a cron run.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'size' => 'tiny',
+      ),
+      'timestamp' => array(
+        'description' => 'UNIX timestamp for when the file was added.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'indexes' => array(
+      'uid' => array('uid'),
+      'status' => array('status'),
+      'timestamp' => array('timestamp'),
+    ),
+    'primary key' => array('sid'),
+    'foreign keys' => array(
+      'file_owner' => array(
+        'table' => 'users',
+        'columns' => array('uid' => 'uid'),
+      ),
+    ),
+  );
+  return $schema;
+}
+
+/**
+ * Drop unique index URI
+ */
+function micropublisher_update_7000(){
+  db_query("ALTER TABLE {micropublisher_managed} DROP INDEX uri");
+}
+
+/**
+ * Allow Null title & image columns
+ */
+function micropublisher_update_7001(){
+
+  //Must loop through all field instance tables here...
+  $fields = field_info_fields();
+  $tables = array();
+  
+  foreach ($fields as $field_name => $field){
+    if ($field['type'] == 'micropublisher'){
+      $tables += $field['storage']['details']['sql'][FIELD_LOAD_CURRENT];
+      $tables += $field['storage']['details']['sql'][FIELD_LOAD_REVISION];
+    }
+  }
+  foreach ($tables as $table_name => $table){
+    db_change_field($table_name, $table['title'], $table['title'], array(
+        'description' => 'Title of the shared link.',
+        'type' => 'varchar',
+        'length' => 150,
+        'not null' => FALSE,
+        'default' => '',
+      ));
+    db_change_field($table_name, $table['image'], $table['image'],  array(
+        'description' => 'Image url of the shared link.',
+        'type' => 'varchar',
+        'length' => 150,
+        'not null' => FALSE,
+        'default' => '',
+      ));
+  }
+}
+

@@ -1,0 +1,790 @@
+<?php
+
+// Load all Field module hooks for micropublisher.
+module_load_include('inc', 'micropublisher', 'micropublisher.field');
+
+/**
+ * Implements hook_menu().
+ */
+function micropublisher_menu() {
+  $items = array();
+
+  $items['micropublisher/ajax'] = array(
+    'page callback' => 'micropublisher_ajax_callback',
+    'delivery callback' => 'ajax_deliver',
+    'access arguments' => array('access content'),
+    'theme callback' => 'ajax_base_page_theme',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['micropublisher/test'] = array(
+    'page callback' => 'micropublisher_test_callback',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function micropublisher_theme() {
+  $path = drupal_get_path('module', 'micropublisher') . '/theme';
+  return array(
+    'micropublisher_full' => array(
+      'variables' => array('item' => NULL, 'path' => NULL, 'micropublisher_style' => NULL, 'entity' => NULL, 'field' => NULL, 'instance' => NULL),
+      'file' => 'micropublisher.field.inc',
+    ),
+    'micropublisher_image' => array(
+      'variables' => array('item' => NULL, 'path' => NULL, 'micropublisher_style' => NULL, 'entity' => NULL, 'field' => NULL, 'instance' => NULL),
+      'file' => 'micropublisher.field.inc',
+    ),
+    'micropublisher_video' => array(
+      'variables' => array('item' => NULL, 'path' => NULL, 'micropublisher_style' => NULL, 'entity' => NULL, 'field' => NULL, 'instance' => NULL),
+      'file' => 'micropublisher.field.inc',
+    ),
+    'micropublisher_element' => array(
+      'render element' => 'element',
+    ),
+    // theme to show text from URL
+    'micropublisher_element_view' => array(
+      'variables' => array('url' => NULL),
+    ),
+    // micropublisher.field.inc.
+    'micropublisher_widget' => array(
+      'render element' => 'element',
+    ),
+    //@todo : theme provider wise
+    'micropublisher_embedded_element' => array(
+      'variables' => array('url' => NULL),
+      'template' => 'micropublisher-embedded-element',
+      'path' => $path
+    ),
+    //@todo : theme provider wise
+    'micropublisher_embedded_video' => array(
+      'variables' => array('url' => NULL, 'embedded' => NULL, 'page' => FALSE, 'image' => FALSE),
+      'template' => 'micropublisher-embedded-video',
+      'path' => $path
+    ),
+    'micropublisher_embedded_image' => array(
+      'variables' => array('url' => NULL, 'embedded' => NULL, 'page' => FALSE, 'image' => FALSE),
+      'template' => 'micropublisher-embedded-image',
+      'path' => $path
+    ),
+    'micropublisher_embedded_slideshare' => array(
+      'variables' => array('url' => NULL, 'embedded' => NULL, 'page' => FALSE, 'image' => FALSE),
+      'template' => 'micropublisher-embedded-slideshare',
+      'path' => $path
+    ),
+    'micropublisher_embedded_rich' => array(
+      'variables' => array('url' => NULL, 'embedded' => NULL, 'page' => FALSE, 'image' => FALSE),
+      'template' => 'micropublisher-embedded-rich',
+      'path' => $path
+    ),
+    'micropublisher_embedded_link' => array(
+      'variables' => array('url' => NULL, 'embedded' => NULL, 'page' => FALSE, 'image' => FALSE),
+      'template' => 'micropublisher-embedded-link',
+      'path' => $path
+    ),
+    'micropublisher_embedded_preview' => array(
+      'variables' => array('url' => NULL, 'embedded' => NULL, 'page' => FALSE),
+      'template' => 'micropublisher-embedded-preview',
+      'path' => $path
+    ),
+  );
+}
+
+/**
+ * Implements hook_element_info().
+ *
+ * The managed url element may be used independently anywhere in Drupal.
+ */
+function micropublisher_element_info() {
+  $file_path = drupal_get_path('module', 'micropublisher');
+  $types['micropublisher'] = array(
+    '#input' => TRUE,
+    '#process' => array('micropublisher_element_process'),
+    '#value_callback' => 'micropublisher_element_value',
+    '#element_validate' => array('micropublisher_element_validate'),
+    '#pre_render' => array('micropublisher_element_pre_render'),
+    '#theme' => 'micropublisher_element',
+    '#theme_wrappers' => array('form_element'),
+    '#extended' => FALSE,
+    '#attached' => array(
+//      'js' => array($file_path . '/micropublisher.js'),
+    ),
+  );
+  return $types;
+}
+
+/**
+ * Process function to expand the micropublisher element type.
+ *
+ * Expands the url type to include Upload and Remove buttons, as well as
+ * support for a default value.
+ */
+function micropublisher_element_process($element, &$form_state, $form) {
+  $sid = isset($element['#value']['sid']) ? $element['#value']['sid'] : 0;
+
+  // Set some default element properties.
+  $element['#url'] = $sid ? micropublisher_load($sid) : FALSE;
+  $element['#tree'] = TRUE;
+
+  $ajax_settings = array(
+    'path' => 'micropublisher/ajax/' . implode('/', $element['#array_parents']) . '/' . $form['form_build_id']['#value'],
+    'wrapper' => $element['#id'] . '-ajax-wrapper',
+    'effect' => 'fade'
+  );
+
+  // Set up the buttons first since we need to check if they were clicked.
+  $element['upload_button'] = array(
+    '#name' => implode('_', $element['#parents']) . '_upload_button',
+    '#type' => 'submit',
+    '#value' => t('Attach'),
+    '#validate' => array(),
+    '#submit' => array('micropublisher_element_submit'),
+    '#limit_validation_errors' => array($element['#parents']),
+    '#ajax' => $ajax_settings,
+    '#weight' => -5,
+  );
+
+  $ajax_settings['effect'] = 'none';
+  $element['remove_button'] = array(
+    '#name' => implode('_', $element['#parents']) . '_remove_button',
+    '#type' => 'submit',
+    '#value' => t('Remove'),
+    '#validate' => array(),
+    '#submit' => array('micropublisher_element_submit'),
+    '#limit_validation_errors' => array($element['#parents']),
+    '#ajax' => $ajax_settings,
+    '#weight' => -5,
+  );
+
+  $element['sid'] = array(
+    '#type' => 'hidden',
+    '#value' => $sid,
+  );
+
+  // The url upload field itself.
+  $element['upload'] = array(
+    '#name' => 'urls[' . implode('_', $element['#parents']) . ']',
+    '#type' => 'textfield',
+    '#title' => t('Choose a url'),
+    '#title_display' => 'invisible',
+    '#default_value' => isset($element['#url']->uri) ? $element['#url']->uri : '',
+    '#theme_wrappers' => array(),
+    '#weight' => -10,
+  );
+
+  if ($sid && $element['#url'] && preg_match('/^((http|https|public|private):\/\/[a-z0-9-]+(.[a-z0-9-]+)*(:[0-9]+)?(\/.*)?)$/i', $element['#url']->uri)) {
+    $element['urlname'] = array(
+      '#type' => 'markup',
+      '#markup' => theme('micropublisher_element_view', array('url' => $element['#url'])),
+      '#weight' => -10,
+    );
+  }
+  // Prefix and suffix used for AJAX replacement.
+  $element['#prefix'] = '<div id="' . $element['#id'] . '-ajax-wrapper">';
+  $element['#suffix'] = '</div>';
+
+  return $element;
+}
+
+/**
+ * The #value_callback for a micropublisher type element.
+ */
+function micropublisher_element_value(&$element, $input = FALSE, $form_state = NULL) {
+  $sid = 0;
+  // Find the current value of this field from the form state.
+  $form_state_sid = $form_state['values'];
+  foreach ($element['#parents'] as $parent) {
+    $form_state_sid = isset($form_state_sid[$parent]) ? $form_state_sid[$parent] : 0;
+  }
+
+  if ($element['#extended'] && isset($form_state_sid['sid'])) {
+    $sid = $form_state_sid['sid'];
+  }
+  elseif (is_numeric($form_state_sid)) {
+    $sid = $form_state_sid;
+  }
+
+  // Process any input and save new uploads.
+  if ($input !== FALSE) {
+    $return = $input;
+    // Uploads take priority over all other values.
+    if ($url = micropublisher_save($element)) {
+      $sid = $url->sid;
+    }
+    else {
+
+      // Check for #micropublisher_value_callback values.
+      // Because FAPI does not allow multiple #value_callback values like it
+      // does for #element_validate and #process, this fills the missing
+      // functionality to allow File fields to be extended through FAPI.
+      if (isset($element['#url_value_callbacks'])) {
+        foreach ($element['#url_value_callbacks'] as $callback) {
+          $callback($element, $input, $form_state);
+        }
+      }
+      // Load url if the sid has changed to confirm it exists.
+      if (isset($input['sid']) && $url = micropublisher_load($input['sid'])) {
+
+        $sid = $url->sid;
+      }
+    }
+  }
+
+  // If there is no input, set the default value.
+  else {
+    if ($element['#extended']) {
+      $default_sid = isset($element['#default_value']['sid']) ? $element['#default_value']['sid'] : 0;
+      $return = isset($element['#default_value']) ? $element['#default_value'] : array('sid' => 0);
+    }
+    else {
+      $default_sid = isset($element['#default_value']) ? $element['#default_value'] : 0;
+      $return = array('sid' => 0);
+    }
+
+    // Confirm that the url exists when used as a default value.
+    if ($default_sid && $url = micropublisher_load($default_sid)) {
+      $sid = $url->sid;
+    }
+  }
+  $return['sid'] = $sid;
+  return $return;
+}
+
+/**
+ * An #element_validate callback for the micropublisher element.
+ */
+function micropublisher_element_validate(&$element, &$form_state) {
+  // If referencing an existing url, only allow if there are existing
+  // references. This prevents unmanaged urls from being deleted if this
+  // item were to be deleted.
+  $clicked_button = end($form_state['clicked_button']['#parents']);
+  if ($clicked_button != 'remove_button') {
+    if ($url = micropublisher_load($element['sid']['#value'])) {
+      if (!preg_match('/^((http|https|public|private):\/\/[a-z0-9-]+(.[a-z0-9-]+)*(:[0-9]+)?(\/.*)?)$/i', $url->uri))
+        form_error($element, t('The url value of %name field is not a valid url.', array('%name' => $element['#title'])));
+    }
+    elseif ($element['#required']) {
+      form_error($element, t('The url referenced by the %name field does not exist.', array('%name' => $element['#title'])));
+    }
+  }
+
+  // Check required property based on the sid.
+  if ($element['#required'] && empty($element['sid']['#value']) && !in_array($clicked_button, array('upload_button', 'remove_button'))) {
+    form_error($element['upload'], t('%name field is required.', array('%name' => $element['#title'])));
+  }
+
+  // Consolidate the array value of this field to a single sid.
+  if (!$element['#extended']) {
+    form_set_value($element, $element['sid']['#value'], $form_state);
+  }
+}
+
+/**
+ * #pre_render callback to hide display of the upload or remove controls.
+ *
+ * Upload controls are hidden when a url is already uploaded. Remove controls
+ * are hidden when there is no url attached. Controls are hidden here instead
+ * of in micropublisher_element_process(), because #access for these buttons depends
+ * on the micropublisher element's #value. See the documentation of form_builder()
+ * for more detailed information about the relationship between #process,
+ * #value, and #access.
+ *
+ * Because #access is set here, it affects display only and does not prevent
+ * JavaScript or other untrusted code from submitting the form as though access
+ * were enabled. The form processing functions for these elements should not
+ * assume that the buttons can't be "clicked" just because they are not
+ * displayed.
+ *
+ * @see micropublisher_element_process()
+ * @see form_builder()
+ */
+function micropublisher_element_pre_render($element) {
+  // If we already have a url, we don't want to show the upload controls.
+  if (!empty($element['#value']['sid']) && !form_get_error($element)) {
+    $element['upload']['#access'] = FALSE;
+    $element['upload_button']['#access'] = FALSE;
+  }
+  // If we don't already have a url, there is nothing to remove.
+  else {
+    $element['remove_button']['#access'] = FALSE;
+  }
+  return $element;
+}
+
+/**
+ * Returns HTML for a managed url element.
+ *
+ * @param $variables
+ *   An associative array containing:
+ *   - element: A render element representing the url.
+ *
+ * @ingroup themeable
+ */
+function theme_micropublisher_element($variables) {
+  $element = $variables['element'];
+  // This wrapper is required to apply JS behaviors and CSS styling.
+  $output = '';
+  $output .= '<div class="form-managed-url">';
+  $output .= drupal_render_children($element);
+  $output .= '</div>';
+  return $output;
+}
+
+/**
+ * Returns HTML for a link to a url.
+ *
+ * @param $variables
+ *   An associative array containing:
+ *   - url: A url object to which the link will be created.
+ *   - icon_directory: (optional) A path to a directory of icons to be used for
+ *     urls. Defaults to the value of the "url_icon_directory" variable.
+ *
+ * @ingroup themeable
+ */
+function theme_micropublisher_element_view($variables) {
+  $url = $variables['url'];
+  return '<span class="url">' . theme('micropublisher_embedded_element', array('url' => $url)) . '</span>';
+}
+
+/**
+ * Submit handler for upload and remove buttons of micropublisher elements.
+ */
+function micropublisher_element_submit($form, &$form_state) {
+  // Determine whether it was the upload or the remove button that was clicked,
+  // and set $element to the micropublisher element that contains that button.
+  $parents = $form_state['triggering_element']['#array_parents'];
+  $button_key = array_pop($parents);
+  $element = drupal_array_get_nested_value($form, $parents);
+
+  // No action is needed here for the upload button, because all url uploads on
+  // the form are processed by micropublisher_element_value() regardless of which
+  // button was clicked. Action is needed here for the remove button, because we
+  // only remove a url in response to its remove button being clicked.
+  if ($button_key == 'remove_button') {
+    // If it's a temporary url we can safely remove it immediately, otherwise
+    // it's up to the implementing module to clean up urls that are in use.
+    if ($element['#url'] && $element['#url']->status == 0) {
+      micropublisher_delete($element['#url']);
+    }
+    // Update both $form_state['values'] and $form_state['input'] to reflect
+    // that the url has been removed, so that the form is rebuilt correctly.
+    // $form_state['values'] must be updated in case additional submit handlers
+    // run, and for form building functions that run during the rebuild, such as
+    // when the micropublisher element is part of a field widget.
+    // $form_state['input'] must be updated so that micropublisher_element_value()
+    // has correct information during the rebuild.
+    $values_element = $element['#extended'] ? $element['sid'] : $element;
+    form_set_value($values_element, NULL, $form_state);
+    drupal_array_set_nested_value($form_state['input'], $values_element['#parents'], NULL);
+  }
+
+  // Set the form to rebuild so that $form is correctly updated in response to
+  // processing the url removal. Since this function did not change $form_state
+  // if the upload button was clicked, a rebuild isn't necessary in that
+  // situation and setting $form_state['redirect'] to FALSE would suffice.
+  // However, we choose to always rebuild, to keep the form processing workflow
+  // consistent between the two buttons.
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Menu callback; Shared AJAX callback for url uploads and deletions.
+ *
+ * This rebuilds the form element for a particular field item. As long as the
+ * form processing is properly encapsulated in the widget element the form
+ * should rebuild correctly using FAPI without the need for additional callbacks
+ * or processing.
+ */
+function micropublisher_ajax_callback() {
+//  module_load_include('inc', 'node', 'node.pages');
+  $form_parents = func_get_args();
+  $form_build_id = (string) array_pop($form_parents);
+
+  if (empty($_POST['form_build_id']) || $form_build_id != $_POST['form_build_id']) {
+    // Invalid request.
+    drupal_set_message(t('An unrecoverable error occurred.', array()), 'error');
+    $commands = array();
+    $commands[] = ajax_command_replace(NULL, theme('status_messages'));
+    return array('#type' => 'ajax', '#commands' => $commands);
+  }
+
+  list($form, $form_state) = ajax_get_form();
+
+  if (!$form) {
+    // Invalid form_build_id.
+    drupal_set_message(t('An unrecoverable error occurred. Use of this form has expired. Try reloading the page and submitting again.'), 'error');
+    $commands = array();
+    $commands[] = ajax_command_replace(NULL, theme('status_messages'));
+    return array('#type' => 'ajax', '#commands' => $commands);
+  }
+
+  // Get the current element and count the number of urls.
+  $current_element = $form;
+  foreach ($form_parents as $parent) {
+    $current_element = $current_element[$parent];
+  }
+
+  $current_url_count = isset($current_element['#url_upload_delta']) ? $current_element['#url_upload_delta'] : 0;
+
+  // Process user input. $form and $form_state are modified in the process.
+  drupal_process_form($form['#form_id'], $form, $form_state);
+
+  // Retrieve the element to be rendered.
+  foreach ($form_parents as $parent) {
+    $form = $form[$parent];
+  }
+
+  // Add the special AJAX class if a new url was added.
+  if (isset($form['#url_upload_delta']) && $current_url_count < $form['#url_upload_delta']) {
+    $form[$current_url_count]['#attributes']['class'][] = 'ajax-new-content';
+  }
+  // Otherwise just add the new content class on a placeholder.
+  else {
+    $form['#suffix'] .= '<span class="ajax-new-content"></span>';
+  }
+
+  $output = theme('status_messages') . drupal_render($form);
+  $js = drupal_add_js();
+  $settings = call_user_func_array('array_merge_recursive', $js['settings']['data']);
+
+  $commands = array();
+  $commands[] = ajax_command_replace(NULL, $output, $settings);
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+/**
+ * Load the status object
+ */
+function micropublisher_load($sid) {
+  return db_query("SELECT *
+      FROM {micropublisher_managed} mm WHERE mm.sid = :sid", array(':sid' => $sid))
+      ->fetch();
+}
+
+/**
+ * Load multiple status objects
+ */
+function micropublisher_load_multiple($sids) {
+  $sid_objects = array();
+  foreach ($sids as $sid) {
+    $sid_objects[$sid] = micropublisher_load($sid);
+  }
+  return $sid_objects;
+}
+
+/**
+ * Save micropublisher object to database
+ */
+function micropublisher_save($element) {
+  global $user;
+  $element_name = implode('_', $element['#parents']);
+  if (!isset($_POST['urls'][$element_name]) || empty($_POST['urls'][$element_name]))
+    return FALSE;
+  $record = new stdClass();
+  $record->uid = $user->uid;
+  $record->uri = filter_xss($_POST['urls'][$element_name]);
+  $record->status = 0;
+  $record->timestamp = time();
+  $record->source = $element_name;
+  if ($url = db_query("SELECT *
+      FROM {micropublisher_managed} mm WHERE mm.uri = :uri", array(':uri' => $record->uri))
+      ->fetch())
+    return $url;
+
+  drupal_write_record('micropublisher_managed', $record);
+//  else
+//    drupal_write_record('micropublisher_managed', $record, 'fid');
+//  print_r($record);
+//  die();
+
+  return $record;
+}
+
+/**
+ * deelte the object
+ */
+function micropublisher_delete($element) {
+  if (is_array($element))
+    $element = (object) $element;
+  db_delete('micropublisher_managed')->condition('sid', $element->sid)->execute();
+}
+
+/**
+ * Test callback functions
+ */
+function micropublisher_test_callback() {
+  module_load_include('inc', 'micropublisher', 'includes/micropublisher');
+//  http://www.vimeo.com/7100569
+//  http://www.flickr.com/photos/bees/2341623661/
+//  http://www.youtube.com/watch?v=ZWRquoR9eW4
+//  $data = micropublisher_oembed_data('http://www.youtube.com/watch?v=ZWRquoR9eW4');
+  //http://www.slideshare.net/haraldf/business-quotes-for-2011
+  $provider = new micropublisher('http://en.wikipedia.org/wiki/Kumar_Sangakkara');
+  $data = $provider->get_data();
+  echo '<pre>';
+  print_r($data);
+//  echo micropublisher_oembed_html_test($data);
+  die();
+}
+
+/**
+ * To be used for HTML in cases where the HTML is cached independent of the theme - like in the case of input filters.
+ */
+function micropublisher_oembed_html_test($embed, $url) {
+  //@todo add tpl file for each theme
+  $return = '';
+  switch ($embed->type) {
+    case 'photo':
+      $return = '<span class="oembed">';
+      if (!empty($embed->title)) {
+        $return .= l($embed->title, $url, array('absolute' => TRUE, 'attributes' => array('class' => 'oembed-title')));
+      }
+      $return .= ' ' . l('<img src="' . check_url($embed->url) . '" />', $url, array('html' => TRUE, 'absolute' => TRUE, 'attributes' => array('class' => 'oembed-photo oembed-content')));
+      $return .= '</span>';
+      break;
+    case 'rich':
+    case 'video':
+      $return = '<div class="oembed">';
+      if (!empty($embed->title)) {
+        $return .= l($embed->title, $url, array('absolute' => TRUE, 'attributes' => array('class' => 'oembed-title')));
+      }
+      $return .= ' <span class="oembed-content oembed-' . ($embed->type == 'video' ? 'video' : 'rich') . '">' . $embed->html . '</span>';
+      $return .= '</div>';
+      break;
+    case 'link':
+      $return .= l($embed->title, $url, array('absolute' => TRUE, 'attributes' => array('class' => 'oembed-title oembed-link')));
+      break;
+    default:
+  }
+
+  return $return;
+}
+
+/**
+ * hook_oembedprovider() to extend providers
+ */
+function micropublisher_oembedprovider() {
+  $providers = array();
+
+//  $provider = new stdClass;
+//  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+//  $provider->name = 'viddler';
+//  $provider->title = 'Viddler';
+//  $provider->endpoint = 'http://lab.viddler.com/services/oembed/';
+//  $provider->scheme = 'http://*.viddler.com/*';
+//  $providers['viddler'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'flickr';
+  $provider->title = 'Flickr';
+  $provider->endpoint = 'http://www.flickr.com/services/oembed/';
+  $provider->scheme = 'http://*.flickr.com/*
+http://flickr.com/*';
+  $providers['flickr'] = $provider;
+
+//  $provider = new stdClass;
+//  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+//  $provider->name = 'qik';
+//  $provider->title = 'Qik';
+//  $provider->endpoint = 'http://qik.com/api/oembed.json';
+//  $provider->scheme = 'http://qik.com/video/*
+//http://qik.com/*';
+//  $providers['qik'] = $provider;
+//  $provider = new stdClass;
+//  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+//  $provider->name = 'revision3';
+//  $provider->title = 'Revision3';
+//  $provider->endpoint = 'http://revision3.com/api/oembed/';
+//  $provider->scheme = 'http://*.revision3.com/*';
+//  $providers['revision3'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'vimeo';
+  $provider->title = 'Vimeo';
+  $provider->endpoint = 'http://www.vimeo.com/api/oembed.json';
+  $provider->scheme = 'http://www.vimeo.com/groups/*/videos/*
+http://www.vimeo.com/*
+http://vimeo.com/groups/*/videos/*
+http://vimeo.com/*';
+  $providers['vimeo'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'youtube';
+  $provider->title = 'YouTube';
+  $provider->endpoint = 'http://www.youtube.com/oembed';
+  $provider->scheme = 'http://*.youtube.com/watch*';
+  $providers['youtube'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'slideshare';
+  $provider->title = 'SlideShare';
+  $provider->endpoint = 'http://www.slideshare.net/api/oembed/1';
+  $provider->scheme = 'http://*.slideshare.com/*
+http://slideshare.com/*';
+  $providers['slideshare'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'hulu';
+  $provider->title = 'Hulu';
+  $provider->endpoint = 'http://www.hulu.com/api/oembed.json';
+  $provider->scheme = 'http://www.hulu.com/watch/*';
+  $providers['hulu'] = $provider;
+
+//  $provider = new stdClass;
+//  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+//  $provider->name = 'bliptv';
+//  $provider->title = 'BlipTv';
+//  $provider->endpoint = 'http://oohembed.com/oohembed';
+//  $provider->scheme = 'http://blip.tv/file/*';
+//  $providers['bliptv'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'metacafe';
+  $provider->title = 'Metacafe';
+  $provider->endpoint = 'http://oohembed.com/oohembed';
+  $provider->scheme = 'http://*.metacafe.com/watch/*';
+  $providers['metacafe'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'twitpic';
+  $provider->title = 'TwitPic';
+  $provider->endpoint = 'http://oohembed.com/oohembed';
+  $provider->scheme = 'http://*.twitpic.com/*';
+  $providers['twitpic'] = $provider;
+
+  $provider = new stdClass;
+  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+  $provider->name = 'yfrog';
+  $provider->title = 'yFrog';
+  $provider->endpoint = 'http://www.yfrog.com/api/oembed';
+  $provider->scheme = 'http://*.yfrog.com/*';
+  $providers['yfrog'] = $provider;
+
+//  $provider = new stdClass;
+//  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+//  $provider->name = 'twitter';
+//  $provider->title = 'Twitter';
+//  $provider->endpoint = 'http://oohembed.com/oohembed';
+//  $provider->scheme = 'http://twitter.com/*/statuses/*';
+//  $providers['twitter'] = $provider;
+//  $provider = new stdClass;
+//  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+//  $provider->name = 'wikipedia';
+//  $provider->title = 'Wikipedia';
+//  $provider->endpoint = 'http://oohembed.com/oohembed';
+//  $provider->scheme = 'http://*.wikipedia.org/wiki/*';
+//  $providers['wikipedia'] = $provider;
+//
+//  $provider = new stdClass;
+//  $provider->disabled = TRUE; /* Edit this to true to make a default provider disabled initially */
+//  $provider->name = 'url';
+//  $provider->title = 'url';
+//  $provider->endpoint = 'http://anyurl';
+//  $provider->scheme = 'http://*.anyurl*';
+//  $providers['url'] = $provider;
+
+  return $providers;
+}
+
+/**
+ *  note : From link module
+ * A lenient verification for URLs. Accepts all URLs following RFC 1738 standard
+ * for URL formation and all email addresses following the RFC 2368 standard for
+ * mailto address formation.
+ *
+ * @param string $text
+ * @return mixed Returns boolean FALSE if the URL is not valid. On success, returns an object with
+ * the following attributes: protocol, hostname, ip, and port.
+ */
+function micropublisher_validate_url($text) {
+  $LINK_ICHARS_DOMAIN = (string) html_entity_decode(implode("", array(
+            "&#x00E6;", // æ
+            "&#x00C6;", // Æ
+            "&#x00F8;", // ø
+            "&#x00D8;", // Ø
+            "&#x00E5;", // å
+            "&#x00C5;", // Å
+            "&#x00E4;", // ä
+            "&#x00C4;", // Ä
+            "&#x00F6;", // ö
+            "&#x00D6;", // Ö
+            "&#x00FC;", // ü
+            "&#x00DC;", // Ü
+            "&#x00D1;", // Ñ
+            "&#x00F1;", // ñ
+          )), ENT_QUOTES, 'UTF-8');
+
+  $LINK_ICHARS = $LINK_ICHARS_DOMAIN . (string) html_entity_decode(implode("", array(
+            "&#x00DF;", // ß
+          )), ENT_QUOTES, 'UTF-8');
+  $allowed_protocols = variable_get('filter_allowed_protocols', array('http', 'https', 'ftp', 'news', 'nntp', 'telnet', 'mailto', 'irc', 'ssh', 'sftp', 'webcal'));
+
+  $protocol = '((' . implode("|", $allowed_protocols) . '):\/\/)';
+  $authentication = '(([a-z0-9%' . $LINK_ICHARS . ']+(:[a-z0-9%' . $LINK_ICHARS . '!]*)?)?@)';
+  $domain = '(([a-z0-9' . $LINK_ICHARS_DOMAIN . ']([a-z0-9' . $LINK_ICHARS_DOMAIN . '\-_\[\]])*)(\.(([a-z0-9' . $LINK_ICHARS_DOMAIN . '\-_\[\]])+\.)*(' . LINK_DOMAINS . '|[a-z]{2}))?)';
+  $ipv4 = '([0-9]{1,3}(\.[0-9]{1,3}){3})';
+  $ipv6 = '([0-9a-fA-F]{1,4}(\:[0-9a-fA-F]{1,4}){7})';
+  $port = '(:([0-9]{1,5}))';
+
+  // Pattern specific to external links.
+  $external_pattern = '/^' . $protocol . '?' . $authentication . '?(' . $domain . '|' . $ipv4 . '|' . $ipv6 . ' |localhost)' . $port . '?';
+
+  // Pattern specific to internal links.
+  $internal_pattern = "/^([a-z0-9" . $LINK_ICHARS . "_\-+\[\]]+)";
+  $internal_pattern_file = "/^([a-z0-9" . $LINK_ICHARS . "_\-+\[\]\.]+)$/i";
+
+  $directories = "(\/[a-z0-9" . $LINK_ICHARS . "_\-\.~+%=&,$'!():;*@\[\]]*)*";
+  // Yes, four backslashes == a single backslash.
+  $query = "(\/?\?([?a-z0-9" . $LINK_ICHARS . "+_|\-\.\/\\\\%=&,$'():;*@\[\]{} ]*))";
+  $anchor = "(#[a-z0-9" . $LINK_ICHARS . "_\-\.~+%=&,$'():;*@\[\]\/\?]*)";
+
+  // The rest of the path for a standard URL.
+  $end = $directories . '?' . $query . '?' . $anchor . '?' . '$/i';
+
+  $message_id = '[^@].*@' . $domain;
+  $newsgroup_name = '([0-9a-z+-]*\.)*[0-9a-z+-]*';
+  $news_pattern = '/^news:(' . $newsgroup_name . '|' . $message_id . ')$/i';
+
+  $user = '[a-zA-Z0-9' . $LINK_ICHARS . '_\-\.\+\^!#\$%&*+\/\=\?\`\|\{\}~\'\[\]]+';
+  $email_pattern = '/^mailto:' . $user . '@' . '(' . $domain . '|' . $ipv4 . '|' . $ipv6 . '|localhost)' . $query . '?$/';
+
+  if (strpos($text, '<front>') === 0) {
+    return LINK_FRONT;
+  }
+  if (in_array('mailto', $allowed_protocols) && preg_match($email_pattern, $text)) {
+    return LINK_EMAIL;
+  }
+  if (in_array('news', $allowed_protocols) && preg_match($news_pattern, $text)) {
+    return LINK_NEWS;
+  }
+  if (preg_match($internal_pattern . $end, $text)) {
+    return LINK_INTERNAL;
+  }
+  if (preg_match($external_pattern . $end, $text)) {
+    return LINK_EXTERNAL;
+  }
+  if (preg_match($internal_pattern_file, $text)) {
+    return LINK_INTERNAL;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Helper function that compares the length of match expressions.
+ *  @note : using by micropublisher.inc
+ */
+function _micropublisher_oembed_specificity_compare($a, $b) {
+  return drupal_strlen($b) - drupal_strlen($a);
+}
